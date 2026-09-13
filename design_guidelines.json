@@ -1,0 +1,184 @@
+{
+  "app_name": "Kebab Blasan POS",
+  "personality": "1 iOS-Native Clean",
+  "personality_one_liner": "A modern, high-contrast, touch-optimized operational surface combining culinary warmth with crisp functional clarity.",
+  "color": {
+    "surface": "#FFFFFF",
+    "onSurface": "#111827",
+    "surfaceSecondary": "#F9FAFB",
+    "onSurfaceSecondary": "#374151",
+    "surfaceTertiary": "#F3F4F6",
+    "onSurfaceTertiary": "#4B5563",
+    "surfaceInverse": "#1F2937",
+    "onSurfaceInverse": "#F9FAFB",
+    "brand": "#F59E0B",
+    "brandPrimary": "#F59E0B",
+    "onBrandPrimary": "#FFFFFF",
+    "brandSecondary": "#D97706",
+    "onBrandSecondary": "#FFFFFF",
+    "brandTertiary": "#FEF3C7",
+    "onBrandTertiary": "#92400E",
+    "success": "#10B981",
+    "onSuccess": "#FFFFFF",
+    "warning": "#FBBF24",
+    "onWarning": "#111827",
+    "error": "#EF4444",
+    "onError": "#FFFFFF",
+    "info": "#3B82F6",
+    "onInfo": "#FFFFFF",
+    "border": "#E5E7EB",
+    "borderStrong": "#D1D5DB",
+    "divider": "#F3F4F6",
+    "muted": "#6B7280",
+    "onBrand": "#FFFFFF"
+  },
+  "typography": {
+    "displayFontFamily": "Plus Jakarta Sans",
+    "textFontFamily": "Plus Jakarta Sans",
+    "scale": {
+      "sm": 12,
+      "base": 14,
+      "lg": 16,
+      "xl": 20,
+      "2xl": 24
+    }
+  },
+  "spacing": {
+    "rule": "Generous touch targets (min 44pt). Use distinct visual padding for operational zones (e.g., product grid vs. cart).",
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48
+  },
+  "radius_tokens": {
+    "sm": 6,
+    "md": 12,
+    "lg": 20,
+    "pill": 999
+  },
+  "shadow_tier": "1",
+  "navigation": "drawer",
+  "icon_set": "Phosphor",
+  "glassmorphism": {
+    "enabled": "false",
+    "do's": [],
+    "dont's": [
+      "No glassmorphism on dense tablet data screens (POS terminal, Admin Dashboard) to maintain pure operational clarity and maximum performance."
+    ]
+  },
+  "platform_libraries": {
+    "glass": {
+      "ios": "expo-glass-effect",
+      "android": "expo-blur",
+      "low_end_android_fallback": "solid surfaceSecondary"
+    },
+    "image": "expo-image",
+    "blur": "expo-blur",
+    "bottom_sheet": "@gorhom/bottom-sheet",
+    "animation": "react-native-reanimated",
+    "gesture": "react-native-gesture-handler"
+  },
+  "screens": [
+    {
+      "name": "Login",
+      "purpose": "Secure shift entry via PIN for cashiers and password for admins.",
+      "states": {
+        "loading": "Spinner over disabled PIN pad",
+        "empty": "N/A",
+        "error": "Shake animation on PIN pad + Red error text below input"
+      },
+      "layout": "Centered clean numeric keypad with large touch targets. Subtle 'Switch to Admin' or 'Role Switcher' toggle at the bottom. Brand logo prominently displayed at the top."
+    },
+    {
+      "name": "Cashier Terminal",
+      "purpose": "High-speed order taking, customization, and checkout.",
+      "states": {
+        "loading": "Skeleton grids for products and categories",
+        "empty": "Illustration of an empty basket in the cart section",
+        "error": "Full-screen error with 'Retry Connection' button"
+      },
+      "layout": "Tablet-first Landscape: Two-pane layout. Left pane (70% width) for scrollable category tabs, instant search bar, and 3-column product grid. Right pane (30% width) fixed for current Cart, subtotal, and heavy CTA for checkout. Portrait/Mobile: Cart moves to a persistent bottom sheet or sticky bottom bar."
+    },
+    {
+      "name": "Checkout Modal",
+      "purpose": "Finalize payment via Cash or QRIS and preview thermal receipt.",
+      "states": {
+        "loading": "Processing payment spinner",
+        "empty": "N/A",
+        "error": "Payment failed state with 'Retry' CTA"
+      },
+      "layout": "Full-screen or large centered modal. Split view: Left side for payment method selection (Cash denominations grid / QRIS barcode), right side for a live preview of the 58/80mm thermal receipt."
+    },
+    {
+      "name": "Daily Sales Recap (Z-Report)",
+      "purpose": "Shift management, cash variance tracking, and end-of-day summary.",
+      "states": {
+        "loading": "Skeleton text blocks",
+        "empty": "No sales recorded yet today",
+        "error": "Failed to sync report - Retry button"
+      },
+      "layout": "Structured single-column or 2-column list of metrics (Revenue, Payment Methods, Toppings sold). Forms for inputting 'Opening Cash' and 'Closing Cash' with automatic variance calculation highlighting."
+    },
+    {
+      "name": "Admin Dashboard",
+      "purpose": "Overview of business metrics, charts, and top-selling items.",
+      "states": {
+        "loading": "Skeleton loading for charts and metric cards",
+        "empty": "No data available for selected date range",
+        "error": "Failed to load analytics"
+      },
+      "layout": "Grid of high-level metric cards (Today's Revenue, Orders). A large weekly bar chart section, followed by a 'Top 5 Sellers' list view. Sidebar or drawer for navigation to CRUD modules."
+    },
+    {
+      "name": "Menu & Toppings CRUD",
+      "purpose": "Admin interface to manage product catalog and variants.",
+      "states": {
+        "loading": "List skeletons",
+        "empty": "No items found, 'Add First Item' CTA",
+        "error": "Failed to fetch menu list"
+      },
+      "layout": "Clean list view with thumbnail images, names, and prices. Floating Action Button (FAB) or prominent 'Add Item' button. Editing opens a slide-over sheet or modal with simple form fields."
+    },
+    {
+      "name": "Transaction History",
+      "purpose": "Review past orders with filtering capabilities.",
+      "states": {
+        "loading": "Table skeleton rows",
+        "empty": "No transactions found matching filters",
+        "error": "Failed to load transactions"
+      },
+      "layout": "Data table or structured list format. Top bar for date/status filters. Tapping a row opens a receipt preview modal showing order details."
+    }
+  ],
+  "images": {
+    "product_kebab": {
+      "url": "https://images.unsplash.com/photo-1529006557810-274b9b2fc783?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1Mjh8MHwxfHNlYXJjaHwxfHxzaGF3YXJtYSUyMGtlYmFiJTIwd3JhcCUyMGZvb2R8ZW58MHx8fHwxNzg5MjI1ODYzfDA&ixlib=rb-4.1.0&q=85",
+      "alt": "beef shawarma kebab wrap"
+    },
+    "product_fries": {
+      "url": "https://images.unsplash.com/photo-1630384060421-cb20d0e0649d?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA2MjJ8MHwxfHNlYXJjaHwxfHxmcmVuY2glMjBmcmllcyUyMHNuYWNrfGVufDB8fHx8MTc4OTIyNTg2Mnww&ixlib=rb-4.1.0&q=85",
+      "alt": "french fries snack"
+    },
+    "product_beverage": {
+      "url": "https://images.unsplash.com/photo-1556679343-c7306c1976bc?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzNzl8MHwxfHNlYXJjaHwxfHxpY2VkJTIwdGVhJTIwYmV2ZXJhZ2V8ZW58MHx8fHwxNzg5MjI1ODYzfDA&ixlib=rb-4.1.0&q=85",
+      "alt": "iced tea beverage"
+    },
+    "empty_cart": {
+      "url": "https://images.unsplash.com/photo-1581404118359-251f28b4566c?crop=entropy&cs=srgb&fm=jpg&ixlib=rb-4.1.0&q=85",
+      "alt": "Abstract minimal illustration of an empty shopping basket"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Build with a strict Tablet-First mentality: Leverage a 2-pane layout for the Cashier Terminal (Categories/Grid on left, Cart sidebar on right). Ensure the layout is fully responsive and falls back to a Bottom Sheet for the cart on mobile.",
+    "Do NOT use glassmorphism effects; this is an operational POS app where rendering performance and high contrast/readability are prioritized over cinematic depth.",
+    "Implement high-contrast, oversized touch targets (minimum 44pt) across the board. Cashiers operate these screens rapidly, often without looking closely.",
+    "Use IDR (Rp) currency formatting exclusively. Add tabular-nums font variant where possible to keep prices and receipts aligned.",
+    "Checkout Flow Strategy: Keep checkout to 2-3 taps. Implement a fast cash denomination grid helper (e.g., Rp 50.000, Rp 100.000) that auto-calculates change.",
+    "Receipt Preview: Implement a view that mimics a 58mm/80mm thermal printer output. Use a monospace-like structure (or distinct layout with dashed dividers) for this modal to represent a physical receipt.",
+    "Maintain the warm culinary aesthetic using the primary brand color (#F59E0B) for active states, CTAs, and active tab indicators, grounding it against crisp whites and charcoal text for legibility.",
+    "Data structure note: Ensure the app cleanly separates the Admin environment from the Cashier environment, using the Role Switcher at login to toggle contexts."
+  ]
+}
