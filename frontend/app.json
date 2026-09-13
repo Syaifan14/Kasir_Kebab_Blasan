@@ -9,14 +9,25 @@
     "userInterfaceStyle": "automatic",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.emergent.kebabblasanpos.uj9zfq"
+      "bundleIdentifier": "com.emergent.kebabblasanpos.uj9zfq",
+      "infoPlist": {
+        "NSBluetoothAlwaysUsageDescription": "Connect to Bluetooth thermal printer to print receipts",
+        "NSBluetoothPeripheralUsageDescription": "Connect to Bluetooth thermal printer to print receipts"
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#000000"
       },
-      "package": "com.emergent.kebabblasanpos.uj9zfq"
+      "package": "com.emergent.kebabblasanpos.uj9zfq",
+      "permissions": [
+        "android.permission.BLUETOOTH",
+        "android.permission.BLUETOOTH_ADMIN",
+        "android.permission.BLUETOOTH_CONNECT",
+        "android.permission.BLUETOOTH_SCAN",
+        "android.permission.ACCESS_FINE_LOCATION"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -38,8 +49,7 @@
       "expo-image",
       "expo-secure-store",
       "expo-web-browser",
-      "expo-status-bar",
-      "@react-native-vector-icons/material-design-icons"
+      "expo-status-bar"
     ],
     "experiments": {
       "typedRoutes": true

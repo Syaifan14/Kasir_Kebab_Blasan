@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/src/auth";
 import { api, formatIDR } from "@/src/api";
 import { colors } from "@/src/theme";
+import { printReceipt, isBluetoothAvailable, bluetoothUnavailableReason } from "@/src/printer";
 
 type Tab = "overview" | "menu" | "toppings" | "history";
 
@@ -43,6 +44,9 @@ export default function Admin() {
           <Text style={styles.hTitle}>Admin · Kebab Blasan</Text>
           <Text style={styles.hSub}>{user?.name}</Text>
         </View>
+        <Pressable style={styles.hIconBtn} onPress={() => router.push("/printer-settings")} testID="btn-printer">
+          <Icon name="printer-wireless" size={22} color={colors.onSurface} />
+        </Pressable>
         <Pressable style={styles.hIconBtn} onPress={doLogout} testID="btn-logout">
           <Icon name="logout" size={22} color={colors.onSurface} />
         </Pressable>
@@ -448,7 +452,7 @@ function History() {
                 <Text style={styles.crudMeta}>
                   {new Date(item.created_at).toLocaleString("id-ID")} · {item.cashier_name}
                 </Text>
-                <Text style={styles.crudMeta}>{item.payment_method === "cash" ? "Tunai" : "QRIS"}</Text>
+                <Text style={styles.crudMeta}>{item.payment_method === "cash" ? "Tunai" : item.payment_method === "qris" ? "QRIS" : "Tunai + QRIS"}</Text>
               </View>
               <Text style={styles.txnAmount}>{formatIDR(item.total)}</Text>
             </Pressable>
@@ -489,11 +493,36 @@ function History() {
                     </View>
                   ))}
                   <Text style={styles.rDivider}>--------------------------------</Text>
+                  {selected.discount > 0 && (
+                    <>
+                      <View style={styles.rLine}>
+                        <Text style={styles.rItem}>Subtotal</Text>
+                        <Text style={styles.rItem}>{formatIDR(selected.subtotal)}</Text>
+                      </View>
+                      <View style={styles.rLine}>
+                        <Text style={styles.rItem}>Diskon{selected.voucher_code ? ` (${selected.voucher_code})` : ""}</Text>
+                        <Text style={styles.rItem}>-{formatIDR(selected.discount)}</Text>
+                      </View>
+                    </>
+                  )}
                   <View style={styles.rLine}>
                     <Text style={styles.rTotalLabel}>TOTAL</Text>
                     <Text style={styles.rTotalVal}>{formatIDR(selected.total)}</Text>
                   </View>
+                  {selected.payment_method === "split" && (
+                    <>
+                      <View style={styles.rLine}>
+                        <Text style={styles.rItem}>Tunai</Text>
+                        <Text style={styles.rItem}>{formatIDR(selected.cash_amount || 0)}</Text>
+                      </View>
+                      <View style={styles.rLine}>
+                        <Text style={styles.rItem}>QRIS</Text>
+                        <Text style={styles.rItem}>{formatIDR(selected.qris_amount || 0)}</Text>
+                      </View>
+                    </>
+                  )}
                 </View>
+                <ReprintButton txn={selected} />
               </ScrollView>
             )}
           </View>
@@ -508,6 +537,48 @@ function Metric({ label, val, accent, testID }: { label: string; val: string; ac
     <View style={[styles.metric, accent && { backgroundColor: colors.brandPrimary }]} testID={testID}>
       <Text style={[styles.metricLabel, accent && { color: colors.onBrandPrimary, opacity: 0.9 }]}>{label}</Text>
       <Text style={[styles.metricVal, accent && { color: colors.onBrandPrimary }]}>{val}</Text>
+    </View>
+  );
+}
+
+function ReprintButton({ txn }: { txn: any }) {
+  const [status, setStatus] = useState<null | { ok: boolean; msg: string }>(null);
+  const [busy, setBusy] = useState(false);
+  const available = isBluetoothAvailable();
+
+  const doPrint = async () => {
+    setBusy(true);
+    setStatus(null);
+    const r = await printReceipt(txn);
+    setStatus({ ok: r.ok, msg: r.ok ? "Struk dicetak" : r.error || "Gagal mencetak" });
+    setBusy(false);
+  };
+
+  return (
+    <View style={{ marginTop: 12 }}>
+      <Pressable
+        style={[styles.printBtn, !available && { opacity: 0.6 }]}
+        onPress={doPrint}
+        disabled={busy}
+        testID="btn-reprint"
+      >
+        {busy ? (
+          <ActivityIndicator color={colors.onSurface} />
+        ) : (
+          <>
+            <Icon name="printer-wireless" size={20} color={colors.onSurface} />
+            <Text style={styles.printBtnTxt}>Cetak Ulang via Bluetooth</Text>
+          </>
+        )}
+      </Pressable>
+      {status && (
+        <Text style={[styles.printStatus, { color: status.ok ? colors.success : colors.error }]}>
+          {status.msg}
+        </Text>
+      )}
+      {!available && (
+        <Text style={styles.printStatus}>{bluetoothUnavailableReason()}</Text>
+      )}
     </View>
   );
 }
@@ -664,4 +735,12 @@ const styles = StyleSheet.create({
   rSub: { fontSize: 11, color: "#666", fontFamily: Platform.select({ ios: "Menlo", android: "monospace", default: "monospace" }) },
   rTotalLabel: { fontWeight: "800", fontSize: 14, color: "#111" },
   rTotalVal: { fontWeight: "800", fontSize: 14, color: "#111" },
+
+  printBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    paddingVertical: 14, borderRadius: 14,
+    backgroundColor: colors.surfaceTertiary, borderWidth: 1, borderColor: colors.borderStrong,
+  },
+  printBtnTxt: { fontWeight: "700", color: colors.onSurface, fontSize: 14 },
+  printStatus: { textAlign: "center", marginTop: 6, fontSize: 12, color: colors.muted },
 });

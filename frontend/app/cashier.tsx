@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "@/src/auth";
 import { api, formatIDR } from "@/src/api";
 import { colors } from "@/src/theme";
+import { printReceipt, isBluetoothAvailable, bluetoothUnavailableReason } from "@/src/printer";
 
 type Product = { id: string; name: string; category: string; price: number; image_url?: string; active: boolean };
 type Topping = { id: string; name: string; price: number; available: boolean };
@@ -56,6 +57,10 @@ export default function Cashier() {
   const [showCart, setShowCart] = useState(false);
   const [customizingProduct, setCustomizingProduct] = useState<Product | null>(null);
   const [showCheckout, setShowCheckout] = useState(false);
+
+  // Discount & voucher
+  const [discount, setDiscount] = useState(0);
+  const [voucherCode, setVoucherCode] = useState<string | null>(null);
 
   // shift state
   const [shift, setShift] = useState<any>(null);
@@ -95,6 +100,7 @@ export default function Cashier() {
   }, [products, cat, q]);
 
   const subtotal = cart.reduce((a, c) => a + c.line_total, 0);
+  const total = Math.max(0, subtotal - discount);
   const cartCount = cart.reduce((a, c) => a + c.quantity, 0);
 
   const addCartItem = (item: CartItem) => {
@@ -111,7 +117,27 @@ export default function Cashier() {
         .filter((it) => it.quantity > 0),
     );
   };
-  const clearCart = () => setCart([]);
+  const clearCart = () => {
+    setCart([]);
+    setDiscount(0);
+    setVoucherCode(null);
+  };
+
+  const applyVoucher = async (code: string): Promise<string | null> => {
+    try {
+      const v = await api<any>(`/vouchers/${encodeURIComponent(code.trim().toUpperCase())}`);
+      const d = Math.floor((subtotal * v.percent) / 100);
+      setDiscount(d);
+      setVoucherCode(v.code);
+      return null;
+    } catch (e: any) {
+      return "Kode voucher tidak valid";
+    }
+  };
+  const clearVoucher = () => {
+    setDiscount(0);
+    setVoucherCode(null);
+  };
 
   const startShift = async () => {
     if (!user) return;
@@ -149,6 +175,9 @@ export default function Cashier() {
         </View>
         <Pressable style={styles.hIconBtn} onPress={() => router.push("/recap")} testID="btn-recap">
           <Icon name="chart-box-outline" size={22} color={colors.onSurface} />
+        </Pressable>
+        <Pressable style={styles.hIconBtn} onPress={() => router.push("/printer-settings")} testID="btn-printer">
+          <Icon name="printer-wireless" size={22} color={colors.onSurface} />
         </Pressable>
         <Pressable style={styles.hIconBtn} onPress={doLogout} testID="btn-logout">
           <Icon name="logout" size={22} color={colors.onSurface} />
@@ -230,7 +259,7 @@ export default function Cashier() {
           testID="fab-cart"
         >
           <Icon name="cart" size={22} color={colors.onBrandPrimary} />
-          <Text style={styles.fabTxt}>{cartCount} item · {formatIDR(subtotal)}</Text>
+          <Text style={styles.fabTxt}>{cartCount} item · {formatIDR(total)}</Text>
           <Icon name="chevron-right" size={22} color={colors.onBrandPrimary} />
         </Pressable>
       )}
@@ -251,6 +280,15 @@ export default function Cashier() {
         visible={showCart}
         cart={cart}
         subtotal={subtotal}
+        discount={discount}
+        voucherCode={voucherCode}
+        total={total}
+        onApplyVoucher={applyVoucher}
+        onClearVoucher={clearVoucher}
+        onManualDiscount={(v) => {
+          setDiscount(Math.max(0, Math.min(subtotal, v)));
+          setVoucherCode(null);
+        }}
         onClose={() => setShowCart(false)}
         onQty={updateQty}
         onCheckout={() => {
@@ -264,6 +302,9 @@ export default function Cashier() {
         visible={showCheckout}
         cart={cart}
         subtotal={subtotal}
+        discount={discount}
+        voucherCode={voucherCode}
+        total={total}
         cashierName={user?.name || ""}
         cashierId={user?.user_id || ""}
         shiftId={shift?.id}
@@ -448,6 +489,12 @@ function CartModal({
   visible,
   cart,
   subtotal,
+  discount,
+  voucherCode,
+  total,
+  onApplyVoucher,
+  onClearVoucher,
+  onManualDiscount,
   onClose,
   onQty,
   onCheckout,
@@ -455,62 +502,163 @@ function CartModal({
   visible: boolean;
   cart: CartItem[];
   subtotal: number;
+  discount: number;
+  voucherCode: string | null;
+  total: number;
+  onApplyVoucher: (code: string) => Promise<string | null>;
+  onClearVoucher: () => void;
+  onManualDiscount: (v: number) => void;
   onClose: () => void;
   onQty: (k: string, d: number) => void;
   onCheckout: () => void;
 }) {
   const insets = useSafeAreaInsets();
+  const [voucherInput, setVoucherInput] = useState("");
+  const [voucherErr, setVoucherErr] = useState<string | null>(null);
+  const [manualInput, setManualInput] = useState("");
+
+  useEffect(() => {
+    if (!visible) {
+      setVoucherInput("");
+      setVoucherErr(null);
+      setManualInput("");
+    }
+  }, [visible]);
+
+  const applyManual = () => {
+    const v = parseInt(manualInput || "0", 10);
+    if (!isNaN(v)) onManualDiscount(v);
+    setManualInput("");
+  };
+
+  const apply = async () => {
+    if (!voucherInput.trim()) return;
+    setVoucherErr(null);
+    const err = await onApplyVoucher(voucherInput);
+    if (err) setVoucherErr(err);
+    else setVoucherInput("");
+  };
+
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
-      <View style={styles.sheetBackdrop}>
-        <View style={[styles.sheet, { paddingBottom: insets.bottom + 16, maxHeight: "88%" }]}>
-          <View style={styles.sheetHandle} />
-          <View style={styles.sheetHeader}>
-            <Text style={styles.sheetTitle}>Cart ({cart.length})</Text>
-            <Pressable onPress={onClose} style={styles.closeBtn}>
-              <Icon name="close" size={22} color={colors.onSurface} />
-            </Pressable>
-          </View>
-          <ScrollView>
-            {cart.map((c) => (
-              <View key={c.key} style={styles.cartRow} testID={`cart-item-${c.key}`}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.cartName}>{c.product_name}</Text>
-                  <Text style={styles.cartBase}>Base: {formatIDR(c.base_price)}</Text>
-                  {c.toppings.map((t) => (
-                    <Text key={t.id} style={styles.cartTop}>
-                      + {t.name} ({formatIDR(t.price)})
-                    </Text>
-                  ))}
-                  {c.spice_level ? <Text style={styles.cartMeta}>Pedas: {c.spice_level}</Text> : null}
-                  {c.notes ? <Text style={styles.cartMeta}>Catatan: {c.notes}</Text> : null}
-                </View>
-                <View style={{ alignItems: "flex-end", gap: 6 }}>
-                  <Text style={styles.cartTotal}>{formatIDR(c.line_total)}</Text>
-                  <View style={styles.qtyRowSm}>
-                    <Pressable style={styles.qtyBtnSm} onPress={() => onQty(c.key, -1)} testID={`cart-minus-${c.key}`}>
-                      <Icon name="minus" size={14} color={colors.onSurface} />
-                    </Pressable>
-                    <Text style={styles.qtyValSm}>{c.quantity}</Text>
-                    <Pressable style={styles.qtyBtnSm} onPress={() => onQty(c.key, 1)} testID={`cart-plus-${c.key}`}>
-                      <Icon name="plus" size={14} color={colors.onSurface} />
-                    </Pressable>
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
+        <View style={styles.sheetBackdrop}>
+          <View style={[styles.sheet, { paddingBottom: insets.bottom + 16, maxHeight: "92%" }]}>
+            <View style={styles.sheetHandle} />
+            <View style={styles.sheetHeader}>
+              <Text style={styles.sheetTitle}>Cart ({cart.length})</Text>
+              <Pressable onPress={onClose} style={styles.closeBtn}>
+                <Icon name="close" size={22} color={colors.onSurface} />
+              </Pressable>
+            </View>
+            <ScrollView>
+              {cart.map((c) => (
+                <View key={c.key} style={styles.cartRow} testID={`cart-item-${c.key}`}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.cartName}>{c.product_name}</Text>
+                    <Text style={styles.cartBase}>Base: {formatIDR(c.base_price)}</Text>
+                    {c.toppings.map((t) => (
+                      <Text key={t.id} style={styles.cartTop}>
+                        + {t.name} ({formatIDR(t.price)})
+                      </Text>
+                    ))}
+                    {c.spice_level ? <Text style={styles.cartMeta}>Pedas: {c.spice_level}</Text> : null}
+                    {c.notes ? <Text style={styles.cartMeta}>Catatan: {c.notes}</Text> : null}
+                  </View>
+                  <View style={{ alignItems: "flex-end", gap: 6 }}>
+                    <Text style={styles.cartTotal}>{formatIDR(c.line_total)}</Text>
+                    <View style={styles.qtyRowSm}>
+                      <Pressable style={styles.qtyBtnSm} onPress={() => onQty(c.key, -1)} testID={`cart-minus-${c.key}`}>
+                        <Icon name="minus" size={14} color={colors.onSurface} />
+                      </Pressable>
+                      <Text style={styles.qtyValSm}>{c.quantity}</Text>
+                      <Pressable style={styles.qtyBtnSm} onPress={() => onQty(c.key, 1)} testID={`cart-plus-${c.key}`}>
+                        <Icon name="plus" size={14} color={colors.onSurface} />
+                      </Pressable>
+                    </View>
                   </View>
                 </View>
-              </View>
-            ))}
-            {cart.length === 0 && <Text style={{ textAlign: "center", color: colors.muted, padding: 30 }}>Cart kosong</Text>}
-          </ScrollView>
+              ))}
+              {cart.length === 0 && <Text style={{ textAlign: "center", color: colors.muted, padding: 30 }}>Cart kosong</Text>}
 
-          <View style={styles.subtotalRow}>
-            <Text style={styles.subLabel}>Subtotal</Text>
-            <Text style={styles.subVal}>{formatIDR(subtotal)}</Text>
+              {cart.length > 0 && (
+                <View style={styles.discountBlock}>
+                  <Text style={styles.discountTitle}>Diskon & Voucher</Text>
+                  {voucherCode ? (
+                    <View style={styles.voucherActive} testID="voucher-active">
+                      <Icon name="ticket-percent" size={18} color={colors.onSuccess} />
+                      <Text style={styles.voucherActiveTxt}>
+                        Voucher {voucherCode} · -{formatIDR(discount)}
+                      </Text>
+                      <Pressable onPress={onClearVoucher} testID="btn-clear-voucher">
+                        <Icon name="close" size={16} color={colors.onSuccess} />
+                      </Pressable>
+                    </View>
+                  ) : (
+                    <>
+                      <View style={styles.discountRow}>
+                        <TextInput
+                          value={voucherInput}
+                          onChangeText={setVoucherInput}
+                          placeholder="Kode voucher (KEBAB10)"
+                          placeholderTextColor={colors.muted}
+                          autoCapitalize="characters"
+                          style={[styles.discountInput, { flex: 1 }]}
+                          testID="voucher-input"
+                        />
+                        <Pressable style={styles.applyBtn} onPress={apply} testID="btn-apply-voucher">
+                          <Text style={styles.applyTxt}>Terapkan</Text>
+                        </Pressable>
+                      </View>
+                      {voucherErr && <Text style={styles.voucherErr} testID="voucher-error">{voucherErr}</Text>}
+
+                      <View style={styles.discountRow}>
+                        <TextInput
+                          value={manualInput}
+                          onChangeText={setManualInput}
+                          placeholder="Diskon manual (Rp)"
+                          placeholderTextColor={colors.muted}
+                          keyboardType="number-pad"
+                          style={[styles.discountInput, { flex: 1 }]}
+                          testID="manual-discount-input"
+                        />
+                        <Pressable style={styles.applyBtn} onPress={applyManual} testID="btn-apply-manual">
+                          <Text style={styles.applyTxt}>Set</Text>
+                        </Pressable>
+                      </View>
+                      {discount > 0 && !voucherCode && (
+                        <Text style={styles.discountApplied} testID="manual-discount-applied">
+                          Diskon manual aktif: -{formatIDR(discount)}
+                        </Text>
+                      )}
+                    </>
+                  )}
+                </View>
+              )}
+            </ScrollView>
+
+            <View style={styles.totalsBox}>
+              <View style={styles.subtotalRow}>
+                <Text style={styles.subLabel}>Subtotal</Text>
+                <Text style={styles.subValSm}>{formatIDR(subtotal)}</Text>
+              </View>
+              {discount > 0 && (
+                <View style={styles.subtotalRow}>
+                  <Text style={styles.subLabel}>Diskon{voucherCode ? ` (${voucherCode})` : ""}</Text>
+                  <Text style={[styles.subValSm, { color: colors.error }]}>-{formatIDR(discount)}</Text>
+                </View>
+              )}
+              <View style={styles.subtotalRow}>
+                <Text style={[styles.subLabel, { fontWeight: "800", color: colors.onSurface }]}>Total</Text>
+                <Text style={styles.subVal}>{formatIDR(total)}</Text>
+              </View>
+            </View>
+            <Pressable style={[styles.primaryBtn, { opacity: cart.length ? 1 : 0.5 }]} onPress={onCheckout} disabled={!cart.length} testID="btn-checkout">
+              <Text style={styles.primaryBtnTxt}>Bayar Sekarang</Text>
+            </Pressable>
           </View>
-          <Pressable style={[styles.primaryBtn, { opacity: cart.length ? 1 : 0.5 }]} onPress={onCheckout} disabled={!cart.length} testID="btn-checkout">
-            <Text style={styles.primaryBtnTxt}>Bayar Sekarang</Text>
-          </Pressable>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -520,6 +668,9 @@ function CheckoutModal({
   visible,
   cart,
   subtotal,
+  discount,
+  voucherCode,
+  total,
   cashierName,
   cashierId,
   shiftId,
@@ -529,6 +680,9 @@ function CheckoutModal({
   visible: boolean;
   cart: CartItem[];
   subtotal: number;
+  discount: number;
+  voucherCode: string | null;
+  total: number;
   cashierName: string;
   cashierId: string;
   shiftId?: string;
@@ -536,8 +690,9 @@ function CheckoutModal({
   onDone: () => void;
 }) {
   const insets = useSafeAreaInsets();
-  const [method, setMethod] = useState<"cash" | "qris">("cash");
+  const [method, setMethod] = useState<"cash" | "qris" | "split">("cash");
   const [cashText, setCashText] = useState("");
+  const [splitCashText, setSplitCashText] = useState("");
   const [processing, setProcessing] = useState(false);
   const [receipt, setReceipt] = useState<any>(null);
 
@@ -545,16 +700,24 @@ function CheckoutModal({
     if (visible) {
       setMethod("cash");
       setCashText("");
+      setSplitCashText("");
       setReceipt(null);
     }
   }, [visible]);
 
   const cashReceived = parseInt(cashText || "0", 10);
-  const change = method === "cash" ? Math.max(0, cashReceived - subtotal) : 0;
-  const canPay = method === "qris" || cashReceived >= subtotal;
+  const change = method === "cash" ? Math.max(0, cashReceived - total) : 0;
+
+  const splitCash = Math.min(total, Math.max(0, parseInt(splitCashText || "0", 10)));
+  const splitQris = Math.max(0, total - splitCash);
+
+  const canPay =
+    method === "qris" ||
+    (method === "cash" && cashReceived >= total) ||
+    (method === "split" && splitCash > 0 && splitQris > 0);
 
   const setDenom = (v: number | "exact") => {
-    if (v === "exact") setCashText(String(subtotal));
+    if (v === "exact") setCashText(String(total));
     else setCashText(String(v));
   };
 
@@ -574,11 +737,14 @@ function CheckoutModal({
           line_total: c.line_total,
         })),
         subtotal,
-        discount: 0,
-        total: subtotal,
+        discount,
+        voucher_code: voucherCode,
+        total,
         payment_method: method,
         cash_received: method === "cash" ? cashReceived : null,
         change: method === "cash" ? change : null,
+        cash_amount: method === "split" ? splitCash : null,
+        qris_amount: method === "split" ? splitQris : null,
         cashier_id: cashierId,
         cashier_name: cashierName,
         shift_id: shiftId,
@@ -614,6 +780,7 @@ function CheckoutModal({
             {receipt ? (
               <ScrollView>
                 <Receipt txn={receipt} />
+                <PrintBluetoothButton txn={receipt} />
                 <Pressable style={styles.primaryBtn} onPress={onDone} testID="btn-finish-txn">
                   <Text style={styles.primaryBtnTxt}>Selesai</Text>
                 </Pressable>
@@ -637,11 +804,26 @@ function CheckoutModal({
                     <Icon name="qrcode" size={22} color={method === "qris" ? colors.onBrandPrimary : colors.onSurface} />
                     <Text style={[styles.payTxt, method === "qris" && { color: colors.onBrandPrimary }]}>QRIS</Text>
                   </Pressable>
+                  <Pressable
+                    style={[styles.payBtn, method === "split" && styles.payBtnActive]}
+                    onPress={() => setMethod("split")}
+                    testID="pay-split"
+                  >
+                    <Icon name="call-split" size={22} color={method === "split" ? colors.onBrandPrimary : colors.onSurface} />
+                    <Text style={[styles.payTxt, method === "split" && { color: colors.onBrandPrimary }]}>Split</Text>
+                  </Pressable>
                 </View>
 
                 <View style={styles.totalBox}>
-                  <Text style={styles.totalLabel}>Total</Text>
-                  <Text style={styles.totalVal}>{formatIDR(subtotal)}</Text>
+                  <View>
+                    <Text style={styles.totalLabel}>Total</Text>
+                    {discount > 0 && (
+                      <Text style={styles.totalSub}>
+                        Subtotal {formatIDR(subtotal)} · Diskon -{formatIDR(discount)}
+                      </Text>
+                    )}
+                  </View>
+                  <Text style={styles.totalVal}>{formatIDR(total)}</Text>
                 </View>
 
                 {method === "cash" && (
@@ -683,6 +865,45 @@ function CheckoutModal({
                   </View>
                 )}
 
+                {method === "split" && (
+                  <>
+                    <Text style={styles.sectionLabel}>Bagian Tunai</Text>
+                    <TextInput
+                      value={splitCashText}
+                      onChangeText={setSplitCashText}
+                      placeholder="0"
+                      placeholderTextColor={colors.muted}
+                      keyboardType="number-pad"
+                      style={styles.bigInput}
+                      testID="split-cash-input"
+                    />
+                    <View style={styles.rowGap}>
+                      {[Math.round(total / 2), Math.round(total * 0.3), Math.round(total * 0.7)].map((v, i) => (
+                        <Pressable key={i} style={styles.denomBtn} onPress={() => setSplitCashText(String(v))} testID={`split-preset-${i}`}>
+                          <Text style={styles.denomTxt}>{formatIDR(v)}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                    <View style={styles.splitSummary}>
+                      <View style={styles.splitRow}>
+                        <Icon name="cash" size={18} color={colors.onSurface} />
+                        <Text style={styles.splitLabel}>Tunai</Text>
+                        <Text style={styles.splitVal}>{formatIDR(splitCash)}</Text>
+                      </View>
+                      <View style={styles.splitRow}>
+                        <Icon name="qrcode" size={18} color={colors.onSurface} />
+                        <Text style={styles.splitLabel}>QRIS</Text>
+                        <Text style={styles.splitVal}>{formatIDR(splitQris)}</Text>
+                      </View>
+                      <View style={[styles.splitRow, { borderTopWidth: 1, borderTopColor: colors.divider, paddingTop: 8, marginTop: 4 }]}>
+                        <Icon name="equal" size={18} color={colors.onSurface} />
+                        <Text style={[styles.splitLabel, { fontWeight: "800" }]}>Total</Text>
+                        <Text style={[styles.splitVal, { fontWeight: "800" }]}>{formatIDR(splitCash + splitQris)}</Text>
+                      </View>
+                    </View>
+                  </>
+                )}
+
                 <Pressable
                   style={[styles.primaryBtn, { opacity: canPay && !processing ? 1 : 0.5 }]}
                   onPress={submit}
@@ -701,6 +922,48 @@ function CheckoutModal({
         </View>
       </KeyboardAvoidingView>
     </Modal>
+  );
+}
+
+function PrintBluetoothButton({ txn }: { txn: any }) {
+  const [status, setStatus] = useState<null | { ok: boolean; msg: string }>(null);
+  const [busy, setBusy] = useState(false);
+  const available = isBluetoothAvailable();
+
+  const doPrint = async () => {
+    setBusy(true);
+    setStatus(null);
+    const r = await printReceipt(txn);
+    setStatus({ ok: r.ok, msg: r.ok ? "Struk dicetak" : r.error || "Gagal mencetak" });
+    setBusy(false);
+  };
+
+  return (
+    <View style={{ marginTop: 12 }}>
+      <Pressable
+        style={[styles.printBtn, !available && { opacity: 0.6 }]}
+        onPress={doPrint}
+        disabled={busy}
+        testID="btn-print-bt"
+      >
+        {busy ? (
+          <ActivityIndicator color={colors.onSurface} />
+        ) : (
+          <>
+            <Icon name="printer-wireless" size={20} color={colors.onSurface} />
+            <Text style={styles.printBtnTxt}>Cetak via Bluetooth</Text>
+          </>
+        )}
+      </Pressable>
+      {status && (
+        <Text style={[styles.printStatus, { color: status.ok ? colors.success : colors.error }]} testID="print-status">
+          {status.msg}
+        </Text>
+      )}
+      {!available && (
+        <Text style={styles.printStatus}>{bluetoothUnavailableReason()}</Text>
+      )}
+    </View>
   );
 }
 
@@ -732,19 +995,51 @@ function Receipt({ txn }: { txn: any }) {
         </View>
       ))}
       <Text style={styles.rDivider}>--------------------------------</Text>
+      {txn.discount && txn.discount > 0 ? (
+        <>
+          <View style={styles.rLine}>
+            <Text style={styles.rItem}>Subtotal</Text>
+            <Text style={styles.rItem}>{formatIDR(txn.subtotal)}</Text>
+          </View>
+          <View style={styles.rLine}>
+            <Text style={styles.rItem}>Diskon{txn.voucher_code ? ` (${txn.voucher_code})` : ""}</Text>
+            <Text style={styles.rItem}>-{formatIDR(txn.discount)}</Text>
+          </View>
+        </>
+      ) : null}
       <View style={styles.rLine}>
         <Text style={styles.rTotalLabel}>TOTAL</Text>
         <Text style={styles.rTotalVal}>{formatIDR(txn.total)}</Text>
       </View>
-      <View style={styles.rLine}>
-        <Text style={styles.rItem}>Bayar ({txn.payment_method === "cash" ? "Tunai" : "QRIS"})</Text>
-        <Text style={styles.rItem}>{formatIDR(txn.cash_received ?? txn.total)}</Text>
-      </View>
       {txn.payment_method === "cash" && (
+        <>
+          <View style={styles.rLine}>
+            <Text style={styles.rItem}>Tunai</Text>
+            <Text style={styles.rItem}>{formatIDR(txn.cash_received ?? txn.total)}</Text>
+          </View>
+          <View style={styles.rLine}>
+            <Text style={styles.rItem}>Kembali</Text>
+            <Text style={styles.rItem}>{formatIDR(txn.change ?? 0)}</Text>
+          </View>
+        </>
+      )}
+      {txn.payment_method === "qris" && (
         <View style={styles.rLine}>
-          <Text style={styles.rItem}>Kembali</Text>
-          <Text style={styles.rItem}>{formatIDR(txn.change ?? 0)}</Text>
+          <Text style={styles.rItem}>QRIS</Text>
+          <Text style={styles.rItem}>{formatIDR(txn.total)}</Text>
         </View>
+      )}
+      {txn.payment_method === "split" && (
+        <>
+          <View style={styles.rLine}>
+            <Text style={styles.rItem}>Tunai</Text>
+            <Text style={styles.rItem}>{formatIDR(txn.cash_amount || 0)}</Text>
+          </View>
+          <View style={styles.rLine}>
+            <Text style={styles.rItem}>QRIS</Text>
+            <Text style={styles.rItem}>{formatIDR(txn.qris_amount || 0)}</Text>
+          </View>
+        </>
       )}
       <Text style={styles.rDivider}>--------------------------------</Text>
       <Text style={styles.rThanks}>Terima kasih!</Text>
@@ -920,9 +1215,55 @@ const styles = StyleSheet.create({
   cartMeta: { fontSize: 12, color: colors.muted, fontStyle: "italic" },
   cartTotal: { fontWeight: "700", color: colors.brandSecondary },
 
-  subtotalRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 12, marginTop: 8 },
+  discountBlock: {
+    marginTop: 8, padding: 12, backgroundColor: colors.surfaceSecondary, borderRadius: 12,
+    borderWidth: 1, borderColor: colors.border,
+  },
+  discountTitle: { fontSize: 13, fontWeight: "800", color: colors.onSurface, marginBottom: 8 },
+  discountRow: { flexDirection: "row", gap: 8, marginTop: 6 },
+  discountInput: {
+    borderWidth: 1, borderColor: colors.border, borderRadius: 10, paddingHorizontal: 12,
+    paddingVertical: 10, fontSize: 14, color: colors.onSurface, backgroundColor: colors.surface,
+  },
+  applyBtn: {
+    paddingHorizontal: 14, borderRadius: 10, backgroundColor: colors.brandSecondary,
+    alignItems: "center", justifyContent: "center",
+  },
+  applyTxt: { color: colors.onBrandSecondary, fontWeight: "700", fontSize: 13 },
+  voucherActive: {
+    flexDirection: "row", alignItems: "center", gap: 8, padding: 10, borderRadius: 10,
+    backgroundColor: colors.success,
+  },
+  voucherActiveTxt: { flex: 1, color: colors.onSuccess, fontWeight: "700", fontSize: 13 },
+  voucherErr: { color: colors.error, marginTop: 4, fontSize: 12, fontWeight: "600" },
+  discountApplied: { color: colors.info, marginTop: 6, fontSize: 12, fontWeight: "600" },
+
+  totalsBox: {
+    marginTop: 8, padding: 12, backgroundColor: colors.surfaceSecondary, borderRadius: 12,
+    borderWidth: 1, borderColor: colors.border,
+  },
+  subtotalRow: { flexDirection: "row", justifyContent: "space-between", paddingVertical: 4 },
   subLabel: { color: colors.onSurfaceSecondary, fontSize: 14 },
   subVal: { fontWeight: "800", fontSize: 18, color: colors.onSurface },
+  subValSm: { fontWeight: "600", fontSize: 14, color: colors.onSurface },
+
+  totalSub: { fontSize: 11, color: colors.onBrandTertiary, opacity: 0.8, marginTop: 2 },
+
+  splitSummary: {
+    marginTop: 12, padding: 12, borderRadius: 12,
+    backgroundColor: colors.surfaceSecondary, borderWidth: 1, borderColor: colors.border,
+  },
+  splitRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6 },
+  splitLabel: { flex: 1, color: colors.onSurfaceSecondary, fontSize: 14 },
+  splitVal: { fontWeight: "700", color: colors.onSurface, fontSize: 15 },
+
+  printBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8,
+    paddingVertical: 14, borderRadius: 14,
+    backgroundColor: colors.surfaceTertiary, borderWidth: 1, borderColor: colors.borderStrong,
+  },
+  printBtnTxt: { fontWeight: "700", color: colors.onSurface, fontSize: 14 },
+  printStatus: { textAlign: "center", marginTop: 6, fontSize: 12, color: colors.muted },
 
   payBtn: {
     flex: 1, flexDirection: "row", gap: 8, paddingVertical: 16,
@@ -938,7 +1279,6 @@ const styles = StyleSheet.create({
   },
   totalLabel: { color: colors.onBrandTertiary, fontWeight: "700", fontSize: 14 },
   totalVal: { color: colors.onBrandTertiary, fontWeight: "800", fontSize: 22 },
-
   bigInput: {
     borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 14,
     fontSize: 18, fontWeight: "700", color: colors.onSurface, marginTop: 8,

@@ -117,10 +117,14 @@ class TransactionCreate(BaseModel):
     items: List[CartItem]
     subtotal: int
     discount: int = 0
+    voucher_code: Optional[str] = None
     total: int
-    payment_method: str  # cash | qris
+    payment_method: str  # cash | qris | split
     cash_received: Optional[int] = None
     change: Optional[int] = None
+    # Split payment fields
+    cash_amount: Optional[int] = None
+    qris_amount: Optional[int] = None
     cashier_id: str
     cashier_name: str
     shift_id: Optional[str] = None
@@ -318,8 +322,23 @@ async def shift_report(sid: str):
     if not shift:
         raise HTTPException(404, "Shift not found")
     txns = await db.transactions.find({"shift_id": sid}, {"_id": 0}).to_list(5000)
-    total_cash = sum(t["total"] for t in txns if t["payment_method"] == "cash")
-    total_qris = sum(t["total"] for t in txns if t["payment_method"] == "qris")
+
+    def _cash_of(t: dict) -> int:
+        if t.get("payment_method") == "cash":
+            return t.get("total", 0)
+        if t.get("payment_method") == "split":
+            return t.get("cash_amount") or 0
+        return 0
+
+    def _qris_of(t: dict) -> int:
+        if t.get("payment_method") == "qris":
+            return t.get("total", 0)
+        if t.get("payment_method") == "split":
+            return t.get("qris_amount") or 0
+        return 0
+
+    total_cash = sum(_cash_of(t) for t in txns)
+    total_qris = sum(_qris_of(t) for t in txns)
     total_revenue = total_cash + total_qris
     tx_count = len(txns)
     avg_order = int(total_revenue / tx_count) if tx_count else 0
@@ -359,6 +378,21 @@ async def shift_report(sid: str):
         "toppings_sold": toppings_sold,
         "products_sold": products_sold,
     }
+
+
+# ============ Vouchers ============
+VOUCHERS = {
+    "KEBAB10": {"code": "KEBAB10", "percent": 10, "label": "Diskon 10%"},
+    "HEMAT20": {"code": "HEMAT20", "percent": 20, "label": "Diskon 20%"},
+    "PROMO5": {"code": "PROMO5", "percent": 5, "label": "Diskon 5%"},
+}
+
+@api_router.get("/vouchers/{code}")
+async def validate_voucher(code: str):
+    v = VOUCHERS.get(code.strip().upper())
+    if not v:
+        raise HTTPException(status_code=404, detail="Kode voucher tidak ditemukan")
+    return v
 
 
 # ============ Transactions ============

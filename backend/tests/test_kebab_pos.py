@@ -175,3 +175,140 @@ class TestShiftAndTxn:
         for k in ["total_revenue", "total_cash", "total_qris", "variance", "toppings_sold", "products_sold", "system_cash"]:
             assert k in j
         assert j["variance"] is not None
+
+
+
+# --- Vouchers (new feature) ---
+class TestVouchers:
+    def test_voucher_uppercase(self, s):
+        r = s.get(f"{API}/vouchers/KEBAB10")
+        assert r.status_code == 200, r.text
+        j = r.json()
+        assert j["code"] == "KEBAB10"
+        assert j["percent"] == 10
+
+    def test_voucher_lowercase_normalized(self, s):
+        r = s.get(f"{API}/vouchers/hemat20")
+        assert r.status_code == 200, r.text
+        j = r.json()
+        assert j["code"] == "HEMAT20"
+        assert j["percent"] == 20
+
+    def test_voucher_promo5(self, s):
+        r = s.get(f"{API}/vouchers/PROMO5")
+        assert r.status_code == 200
+        assert r.json()["percent"] == 5
+
+    def test_voucher_invalid_404(self, s):
+        r = s.get(f"{API}/vouchers/INVALID999")
+        assert r.status_code == 404
+
+
+# --- New Features: Discount / Voucher / Split Payment / Shift Report ---
+class TestNewFeatures:
+    _shift_id = None
+    _cash_txn = None
+    _qris_txn = None
+    _split_txn = None
+    _disc_txn = None
+
+    def _base_item(self, s):
+        p = s.get(f"{API}/products").json()[0]
+        return p, {
+            "product_id": p["id"],
+            "product_name": p["name"],
+            "base_price": p["price"],
+            "toppings": [],
+            "spice_level": "Medium",
+            "notes": "TEST_NEW",
+            "quantity": 1,
+            "line_total": p["price"],
+        }
+
+    def test_start_new_shift(self, s, cashier_auth):
+        # Start a fresh shift for isolated report totals
+        r = s.post(f"{API}/shifts/start", json={
+            "cashier_id": f"TEST_report_{os.getpid()}",
+            "cashier_name": "TEST Report Cashier",
+            "opening_cash": 0,
+        })
+        assert r.status_code == 200
+        TestNewFeatures._shift_id = r.json()["id"]
+
+    def test_txn_with_discount_and_voucher(self, s, cashier_auth):
+        p, item = self._base_item(s)
+        subtotal = p["price"]
+        discount = 2000
+        total = subtotal - discount
+        payload = {
+            "items": [item],
+            "subtotal": subtotal,
+            "discount": discount,
+            "voucher_code": "KEBAB10",
+            "total": total,
+            "payment_method": "cash",
+            "cash_received": total,
+            "change": 0,
+            "cashier_id": cashier_auth["user_id"],
+            "cashier_name": cashier_auth["name"],
+        }
+        r = s.post(f"{API}/transactions", json=payload)
+        assert r.status_code == 200, r.text
+        j = r.json()
+        assert j["discount"] == 2000
+        assert j["voucher_code"] == "KEBAB10"
+        TestNewFeatures._disc_txn = j["id"]
+        # verify via GET
+        g = s.get(f"{API}/transactions/{j['id']}")
+        assert g.status_code == 200
+        gj = g.json()
+        assert gj["discount"] == 2000
+        assert gj["voucher_code"] == "KEBAB10"
+
+    def test_split_payment_transaction(self, s, cashier_auth):
+        item = {
+            "product_id": "x", "product_name": "TEST_split", "base_price": 5000,
+            "toppings": [], "quantity": 1, "line_total": 5000,
+        }
+        payload = {
+            "items": [item], "subtotal": 5000, "discount": 0, "total": 5000,
+            "payment_method": "split", "cash_amount": 3000, "qris_amount": 2000,
+            "cashier_id": cashier_auth["user_id"], "cashier_name": cashier_auth["name"],
+            "shift_id": TestNewFeatures._shift_id,
+        }
+        r = s.post(f"{API}/transactions", json=payload)
+        assert r.status_code == 200, r.text
+        j = r.json()
+        assert j["payment_method"] == "split"
+        assert j["cash_amount"] == 3000
+        assert j["qris_amount"] == 2000
+        TestNewFeatures._split_txn = j["id"]
+
+    def test_shift_report_split_totals(self, s, cashier_auth):
+        # Create a pure cash 10000 + pure qris 5000 on same shift, then verify totals
+        base = {
+            "items": [{"product_id": "x", "product_name": "TEST_c", "base_price": 10000,
+                       "toppings": [], "quantity": 1, "line_total": 10000}],
+            "subtotal": 10000, "discount": 0, "total": 10000,
+            "cashier_id": cashier_auth["user_id"], "cashier_name": cashier_auth["name"],
+            "shift_id": TestNewFeatures._shift_id,
+        }
+        cash_payload = {**base, "payment_method": "cash", "cash_received": 10000, "change": 0}
+        r1 = s.post(f"{API}/transactions", json=cash_payload)
+        assert r1.status_code == 200
+        qris_payload = {
+            **base,
+            "items": [{"product_id": "x", "product_name": "TEST_q", "base_price": 5000,
+                       "toppings": [], "quantity": 1, "line_total": 5000}],
+            "subtotal": 5000, "total": 5000, "payment_method": "qris",
+        }
+        r2 = s.post(f"{API}/transactions", json=qris_payload)
+        assert r2.status_code == 200
+
+        rep = s.get(f"{API}/shifts/{TestNewFeatures._shift_id}/report")
+        assert rep.status_code == 200
+        j = rep.json()
+        # Expected: cash 10000 + split.cash 3000 = 13000; qris 5000 + split.qris 2000 = 7000
+        assert j["total_cash"] == 13000, f"cash mismatch: {j['total_cash']}"
+        assert j["total_qris"] == 7000, f"qris mismatch: {j['total_qris']}"
+        assert j["total_revenue"] == 20000, f"revenue mismatch: {j['total_revenue']}"
